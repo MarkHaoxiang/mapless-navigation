@@ -1,5 +1,4 @@
 from typing import List, Tuple
-import random
 
 import torch
 from vmas.simulator.core import Agent, Landmark, World, Sphere, Line, Color
@@ -7,7 +6,7 @@ from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.sensors import Lidar
 from vmas.simulator.utils import AGENT_OBS_TYPE, AGENT_REWARD_TYPE, ScenarioUtils
 
-from mapless_navigation.maze import Maze
+from mapless_navigation.maze import Maze, Direction
 
 class Scenario(BaseScenario):
     def make_world(self,
@@ -45,96 +44,28 @@ class Scenario(BaseScenario):
             minimum_room_length=minimum_gap_size*2
         )
 
-        walls = []
-            # Outer walls
-        for i in range(4):
-            vertical = i % 2 == 1
-            walls.append(
-                (
+        self.walls: List[Tuple[Landmark, Tuple[float, float], Direction]] = []
+        for i, (x, y, dir, l) in enumerate(maze.walls):
+            print(x,y,dir,l)
+            if dir == Direction.HORIZONTAL:
+                x += l / 2
+            else:
+                y += l / 2
+            self.walls.append(
+                (   # Wall Object
                     Landmark(
-                        name = f"Wall {i}",
+                        name=f"wall {i}",
                         collide=True,
-                        shape=Line(length=world_size),
+                        shape= Line(length=l),
                         color=Color.BLACK
                     ),
-                    ((i % 2)*world_size/2*(i-2), (1-(i % 2))*world_size/2*(i-1)),
-                    vertical
+                    # Starting position
+                    (x-world_size/2,y-world_size/2),
+                    # Orientation
+                    dir
                 )
-            )        
-        
-            # Inner walls
-        def build_wall(maze: Maze, wall_count = 0):
-            if maze.has_division:
-                # Start wall
-                wall_length = maze.opening_offset
-                x = maze.offset_x 
-                y = maze.offset_y 
-                if maze.cut_division_start:
-                    wall_length = wall_length - minimum_gap_size
-                    if maze.has_vertical_division:
-                        y += minimum_gap_size
-                    else:
-                        x += minimum_gap_size
-                if maze.has_horizontal_division:
-                    y += maze.division_offset
-                    x += wall_length / 2
-                else:
-                    x += maze.division_offset
-                    y += wall_length / 2
-                if wall_length > 0:
-                    walls.append(
-                        (   # Wall Object
-                            Landmark(
-                                name=f"wall {wall_count}",
-                                collide=True,
-                                shape= Line(length=wall_length),
-                                color=Color.BLACK
-                            ),
-                            # Starting position
-                            (x-world_size/2, y-world_size/2),
-                            # Orientation
-                            maze.division_direction
-                        )
-                    )
-                    wall_count += 1
-                # End wall
-                wall_length = maze.w if maze.has_horizontal_division else maze.h
-                wall_length = wall_length - maze.opening_offset - maze.opening_length
-                if maze.cut_division_end:
-                    wall_length -= minimum_gap_size
-                x = maze.offset_x 
-                y = maze.offset_y 
-                if maze.has_horizontal_division:
-                    y += maze.division_offset
-                    x += maze.opening_offset + maze.opening_length + wall_length / 2
-                else:
-                    x += maze.division_offset
-                    y += maze.opening_offset + maze.opening_length + wall_length / 2
-                if wall_length > 0:
-                    walls.append(
-                        (   # Wall Object
-                            Landmark(
-                                name=f"wall {wall_count}",
-                                collide=True,
-                                shape= Line(length=wall_length),
-                                color=Color.BLACK
-                            ),
-                            # Starting position
-                            (x-world_size/2,y-world_size/2),
-                            # Orientation
-                            maze.division_direction
-                        )
-                    )
-                    wall_count += 1
-
-                # Recursive Call
-                wall_count = build_wall(maze.region_1, wall_count=wall_count)
-                wall_count = build_wall(maze.region_2, wall_count=wall_count)
-
-            return wall_count
-
-        self.n_walls = build_wall(maze, wall_count=4)
-        self.walls: List[Tuple[Landmark, Tuple[float, float], bool]] = walls
+            )
+        self.n_walls = len(self.walls)
         for wall, _, _ in self.walls:
             world.add_landmark(wall)
 
@@ -147,6 +78,8 @@ class Scenario(BaseScenario):
         agent.goal = goal
         world.add_landmark(goal)
 
+        self.goal = goal
+        self.agent = agent
         return world
 
     def reward(self, agent: Agent) -> AGENT_REWARD_TYPE:
@@ -170,7 +103,7 @@ class Scenario(BaseScenario):
                 ),
                 batch_index=env_index
             )
-            if orientation:
+            if orientation == Direction.VERTICAL:
                 # Vertical Down
                 wall.set_rot(
                     torch.tensor(3 * torch.pi / 2, dtype=torch.float32, device=self.world.device),
@@ -182,17 +115,8 @@ class Scenario(BaseScenario):
                     torch.tensor(0, dtype=torch.float32, device=self.world.device),
                     batch_index=env_index
                 )
-
-        # Spawn Agent and Goal
-        # TODO (Collision Avoidance)
-        # ScenarioUtils.spawn_entities_randomly(
-        #     entities=self.world.agents + self.world.landmarks,
-        #     world=self.world,
-        #     env_index=env_index,
-        #     min_dist_between_entities=0.3,
-        #     x_bounds=(-1, 1),
-        #     y_bounds=(-1, 1)
-        # )
+        
+        # Spawn agent and goal
 
     def observation(self, agent: Agent) -> AGENT_OBS_TYPE:
         return torch.cat([
