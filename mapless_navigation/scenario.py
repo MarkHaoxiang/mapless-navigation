@@ -23,15 +23,22 @@ class Scenario(BaseScenario):
             device=device
         )
 
+        # Add Goal
+        goal = Landmark(
+            name="goal",
+            collide=False
+        )
+
         # Initialise Agent
         agent = Agent(
             "agent",
-            shape=Sphere(radius=robot_radius*5),
+            shape=Sphere(radius=robot_radius),
             render_action=True,
             sensors = [Lidar(
                 world=world,
                 n_rays=12,
-                max_range=0.35
+                max_range=0.35,
+                #entity_filter = lambda x: False if x == goal else True
             )]
         )
         world.add_agent(agent)
@@ -46,7 +53,6 @@ class Scenario(BaseScenario):
 
         self.walls: List[Tuple[Landmark, Tuple[float, float], Direction]] = []
         for i, (x, y, dir, l) in enumerate(maze.walls):
-            print(x,y,dir,l)
             if dir == Direction.HORIZONTAL:
                 x += l / 2
             else:
@@ -69,11 +75,7 @@ class Scenario(BaseScenario):
         for wall, _, _ in self.walls:
             world.add_landmark(wall)
 
-        # Add Goal
-        goal = Landmark(
-            name="goal",
-            collide=False
-        )
+        
 
         agent.goal = goal
         world.add_landmark(goal)
@@ -119,7 +121,8 @@ class Scenario(BaseScenario):
         # Spawn agent and goal
 
     def observation(self, agent: Agent) -> AGENT_OBS_TYPE:
-        return torch.cat([
-            agent.state.pos,
-            agent.state.vel
-        ])
+        agent.sensors[0].measure()
+        return torch.cat(
+            [agent.state.pos,agent.state.vel],
+            dim=-1
+        )
