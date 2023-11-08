@@ -6,7 +6,7 @@ from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.sensors import Lidar
 from vmas.simulator.utils import AGENT_OBS_TYPE, AGENT_REWARD_TYPE, ScenarioUtils
 
-from mapless_navigation.maze import Maze, Direction
+from mapless_navigation.maze import Maze, Direction, Room
 
 class Scenario(BaseScenario):
     def make_world(self,
@@ -16,6 +16,8 @@ class Scenario(BaseScenario):
                    world_size: float = 3,
                    **kwargs) -> World:
         minimum_gap_size = robot_radius * 5
+
+        self.world_size = world_size
 
         # Initialise World
         world = World(
@@ -38,12 +40,12 @@ class Scenario(BaseScenario):
                 world=world,
                 n_rays=12,
                 max_range=0.35,
-                #entity_filter = lambda x: False if x == goal else True
+                entity_filter = lambda x: False if x == goal else True
             )]
         )
         world.add_agent(agent)
         # Build Map
-        maze = Maze(
+        self.maze = Maze(
             w=world_size,
             h=world_size,
             resolution=4,
@@ -52,7 +54,7 @@ class Scenario(BaseScenario):
         )
 
         self.walls: List[Tuple[Landmark, Tuple[float, float], Direction]] = []
-        for i, (x, y, dir, l) in enumerate(maze.walls):
+        for i, (x, y, dir, l) in enumerate(self.maze.walls):
             if dir == Direction.HORIZONTAL:
                 x += l / 2
             else:
@@ -119,6 +121,28 @@ class Scenario(BaseScenario):
                 )
         
         # Spawn agent and goal
+        indices = torch.randint(low=0, high=len(self.maze.leaves), size=(2,))
+            # TODO: Weigh on size of room
+        room: Room = self.maze.leaves[indices[0].item()]
+            # TODO: Random position within room
+        self.goal.set_pos(
+            torch.tensor(
+                [room.offset_x+room.w/2-self.world_size/2,
+                 room.offset_y+room.h/2-self.world_size/2]
+            ),
+            batch_index=env_index
+        )
+
+        room: Room = self.maze.leaves[indices[1].item()]
+            # TODO: Random position within room
+        self.agent.set_pos(
+            torch.tensor(
+                [room.offset_x+room.w/2-self.world_size/2,
+                 room.offset_y+room.h/2-self.world_size/2]
+            ),
+            batch_index=env_index
+        )
+
 
     def observation(self, agent: Agent) -> AGENT_OBS_TYPE:
         agent.sensors[0].measure()
