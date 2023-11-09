@@ -1,4 +1,5 @@
 from typing import List, Tuple
+import numpy as np
 
 import torch
 from vmas.simulator.core import Agent, Landmark, World, Sphere, Line, Color
@@ -15,10 +16,9 @@ class Scenario(BaseScenario):
                    robot_radius: float = 0.05,
                    world_size: float = 3,
                    **kwargs) -> World:
-        minimum_gap_size = robot_radius * 5
-
         self.world_size = world_size
-
+        self.robot_radius = robot_radius
+        minimum_gap_size = robot_radius * 5
         # Initialise World
         world = World(
             batch_dim=batch_dim,
@@ -43,7 +43,8 @@ class Scenario(BaseScenario):
                 entity_filter = lambda x: False if x == goal else True
             )]
         )
-        world.add_agent(agent)
+        agent.goal = goal
+
         # Build Map
         self.maze = Maze(
             w=world_size,
@@ -68,19 +69,20 @@ class Scenario(BaseScenario):
                         color=Color.BLACK
                     ),
                     # Starting position
-                    (x-world_size/2,y-world_size/2),
+                    (x-self.world_size/2,y-self.world_size/2),
                     # Orientation
                     dir
                 )
             )
         self.n_walls = len(self.walls)
+        self._leaf_weights = np.array([room.area for room in self.maze.leaves])
+        self._leaf_weights = self._leaf_weights / self._leaf_weights.sum()
+
+        # Register entities
+        world.add_agent(agent)
+        world.add_landmark(goal)
         for wall, _, _ in self.walls:
             world.add_landmark(wall)
-
-        
-
-        agent.goal = goal
-        world.add_landmark(goal)
 
         self.goal = goal
         self.agent = agent
@@ -121,28 +123,14 @@ class Scenario(BaseScenario):
                 )
         
         # Spawn agent and goal
-        indices = torch.randint(low=0, high=len(self.maze.leaves), size=(2,))
-            # TODO: Weigh on size of room
-        room: Room = self.maze.leaves[indices[0].item()]
-            # TODO: Random position within room
         self.goal.set_pos(
-            torch.tensor(
-                [room.offset_x+room.w/2-self.world_size/2,
-                 room.offset_y+room.h/2-self.world_size/2]
-            ),
+            self._random_room_position(distance_from_edge=self.robot_radius),
             batch_index=env_index
         )
-
-        room: Room = self.maze.leaves[indices[1].item()]
-            # TODO: Random position within room
         self.agent.set_pos(
-            torch.tensor(
-                [room.offset_x+room.w/2-self.world_size/2,
-                 room.offset_y+room.h/2-self.world_size/2]
-            ),
+            self._random_room_position(distance_from_edge=self.robot_radius),
             batch_index=env_index
         )
-
 
     def observation(self, agent: Agent) -> AGENT_OBS_TYPE:
         agent.sensors[0].measure()
@@ -150,3 +138,21 @@ class Scenario(BaseScenario):
             [agent.state.pos,agent.state.vel],
             dim=-1
         )
+
+    def _random_room_position(self, distance_from_edge: float = 0) -> torch.tensor:
+        # Choose a random room
+        room: Room = np.random.choice(self.maze.leaves, p=self._leaf_weights)
+        bounding_box = (
+            room.offset_x + distance_from_edge,
+            room.offset_x+room.w - distance_from_edge,
+            room.offset_y + distance_from_edge,
+            room.offset_y+room.h - distance_from_edge
+        )
+        assert bounding_box[0] <= bounding_box[1] and bounding_box[2] <= bounding_box[3], "Invalid room dimensions"
+
+        # Choose a random position within the room
+        result = torch.rand(size=(2,)).to(device=self.world.device)
+        result[0] = result[0] * (bounding_box[1]-bounding_box[0]) + bounding_box[0]
+        result[1] = result[1] * (bounding_box[3]-bounding_box[2]) + bounding_box[2]
+        result -= self.world_size / 2
+        return result

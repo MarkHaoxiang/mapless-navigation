@@ -52,6 +52,10 @@ class Room:
         self.region_2 = region_2
 
     @property
+    def area(self):
+        return self.w * self.h
+
+    @property
     def division_length(self):
         return self.w if self.has_horizontal_division else self.h
 
