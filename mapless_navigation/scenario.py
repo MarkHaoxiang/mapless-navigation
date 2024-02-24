@@ -94,7 +94,7 @@ class Scenario(BaseScenario):
             dim=-1
         )
         agent.on_goal = agent.distance_to_goal < agent.goal.shape.radius
-        return agent.on_goal
+        return agent.on_goal.to(torch.float32)
     
     def reset_world_at(self, env_index: int = None):
         # Spawn Walls
@@ -133,9 +133,11 @@ class Scenario(BaseScenario):
         )
 
     def observation(self, agent: Agent) -> AGENT_OBS_TYPE:
-        agent.sensors[0].measure()
+        measurement = agent.sensors[0].measure()
+        relative_goal_position = self.goal.state.pos - agent.state.pos
+        # TODO: Agent current state isn't a realistic observation to have
         return torch.cat(
-            [agent.state.pos,agent.state.vel],
+            [measurement, relative_goal_position, agent.state.pos, agent.state.vel],
             dim=-1
         )
 
